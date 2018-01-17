@@ -1,7 +1,7 @@
 {
     "require": {
         "zozlak/util": "*",
-        "acdh-oeaw/repo-php-util": "~1",
+        "acdh-oeaw/repo-php-util": "~2",
         "guzzlehttp/guzzle": "~6.0"
     }
 }
