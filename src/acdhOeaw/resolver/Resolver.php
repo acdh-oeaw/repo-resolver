@@ -58,24 +58,23 @@ class Resolver {
         $resId    = 'https://' . $host . filter_input(\INPUT_SERVER, 'REDIRECT_URL');
         $res      = $this->findResource($resId);
         $dissServ = $res->getDissServices();
-
-        $defaultServ = RC::get('defaultDissService');
-        if ($defaultServ && isset($dissServ[$defaultServ])) {
-            $request = $dissServ[$defaultServ]->getRequest($res);
-        } else {
-            $request = new Request('GET', $res->getUri(true));
-        }
-
         $accept = $this->parseAccept();
-        if (isset($dissServ['gui'])) {
-            
-        }
         foreach ($accept as $mime) {
             if (isset($dissServ[$mime])) {
                 $request = $dissServ[$mime]->getRequest($res);
                 break;
             }
         }
+
+        if ($request === null) {
+            $defaultServ = RC::get('defaultDissService');
+            if ($defaultServ && isset($dissServ[$defaultServ])) {
+                $request = $dissServ[$defaultServ]->getRequest($res);
+            } else {
+                $request = new Request('GET', $res->getUri(true));
+            }
+        }
+
         $this->redirect($request->getUri());
         return;
     }
