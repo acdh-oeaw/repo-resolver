@@ -11,7 +11,7 @@ RC::init('config.ini');
 Resolver::$debug = filter_input(\INPUT_GET, 'debug') ? true : false;
 
 try {
-    $resolver = new Resolver($host);
+    $resolver = new Resolver();
     $resolver->resolve();
 } catch (Exception $e) {
     header('HTTP/1.1 ' . $e->getCode() . ' ' . $e->getMessage());
