@@ -29,6 +29,7 @@ namespace acdhOeaw\resolver;
 use Exception;
 use RuntimeException;
 use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Exception\RequestException;
 use acdhOeaw\fedora\Fedora;
 use acdhOeaw\fedora\FedoraResource;
 use acdhOeaw\fedora\exceptions\NotFound;
@@ -58,7 +59,7 @@ class Resolver {
         $resId    = 'https://' . $host . filter_input(\INPUT_SERVER, 'REDIRECT_URL');
         $res      = $this->findResource($resId);
         $dissServ = $res->getDissServices();
-        $accept = $this->parseAccept();
+        $accept   = $this->parseAccept();
         foreach ($accept as $mime) {
             if (isset($dissServ[$mime])) {
                 $request = $dissServ[$mime]->getRequest($res);
@@ -77,6 +78,10 @@ class Resolver {
 
         $this->redirect($request->getUri());
         return;
+        
+        // reverse-proxy variant
+        $proxy = new Proxy();
+        $proxy->proxy($request->getUri());
     }
 
     private function findResource(string $resId): FedoraResource {
@@ -98,6 +103,11 @@ class Resolver {
                 
             } catch (AmbiguousMatch $e) {
                 throw new RuntimeException('Internal Server Error - many resources with the given URI', 500);
+            } catch (RequestException $e) {
+                // skip sparql endpoints we are not authorized to use
+                if ($e->getCode() != 401 && $e->getCode() != 403) {
+                    throw new RuntimeException('Internal Server Error', 500);
+                }
             } catch (Exception $e) {
                 throw new RuntimeException('Internal Server Error', 500);
             }
@@ -137,26 +147,4 @@ class Resolver {
         }
     }
 
-//    private function useDissService(DisseminationService $service) {
-//        switch ($this->config->get('mode')) {
-//            case 'POST':
-//                break;
-//            case 'GET':
-//                break;
-//            default:
-//                $this->redirect($service->getUrl());
-//        }
-//    }
-//
-//    private function aaa() {
-//        $options               = array();
-//        $options['sink']       = $output;
-//        $options['on_headers'] = function(Response $r) {
-//            $this->filterHeaders($r);
-//        };
-//        $options['verify'] = false;
-//        $client            = new Client($options);
-//
-//        $output = fopen('php://output', 'w');
-//    }
 }
