@@ -84,7 +84,7 @@ class Resolver {
         if ($service === null) {
             $request = new Request('GET', $res->getUri(true));
             $this->redirect($request->getUri());
-        } elseif ($service->getRevProxy()) {
+        } elseif (!$service->getRevProxy()) {
             $request = $service->getRequest($res);
             if (self::$debug) {
                 echo 'Location: ' . $request->getUri() . "\n";
