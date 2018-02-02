@@ -28,6 +28,7 @@ namespace acdhOeaw\resolver;
 
 use Exception;
 use RuntimeException;
+use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Exception\RequestException;
 use acdhOeaw\fedora\Fedora;
@@ -37,7 +38,8 @@ use acdhOeaw\fedora\exceptions\AmbiguousMatch;
 use acdhOeaw\util\RepoConfig as RC;
 
 /**
- * Description of Resolver
+ * Resolves an URI being defined as an identifier of a repository object to
+ * the proper dissemination method.
  *
  * @author zozlak
  */
@@ -48,7 +50,12 @@ class Resolver {
 
     static public $debug = false;
 
+    /**
+     * Performs the resolution
+     */
     public function resolve() {
+        /* @var $service \acdhOeaw\fedora\dissemination\Service */
+        $service = null;
         if (filter_input(INPUT_SERVER, 'HTTP_X_FORWARDED_HOST')) {
             $host = explode(',', filter_input(INPUT_SERVER, 'HTTP_X_FORWARDED_HOST'));
             $host = trim($host[0]);
@@ -62,28 +69,54 @@ class Resolver {
         $accept   = $this->parseAccept();
         foreach ($accept as $mime) {
             if (isset($dissServ[$mime])) {
-                $request = $dissServ[$mime]->getRequest($res);
+                $service = $dissServ[$mime];
                 break;
             }
         }
 
-        if ($request === null) {
+        if ($service === null) {
             $defaultServ = RC::get('defaultDissService');
             if ($defaultServ && isset($dissServ[$defaultServ])) {
-                $request = $dissServ[$defaultServ]->getRequest($res);
-            } else {
-                $request = new Request('GET', $res->getUri(true));
+                $service = $dissServ[$defaultServ];
             }
         }
 
-        $this->redirect($request->getUri());
-        return;
-        
-        // reverse-proxy variant
-        $proxy = new Proxy();
-        $proxy->proxy($request->getUri());
+        if ($service === null) {
+            $request = new Request('GET', $res->getUri(true));
+            $this->redirect($request->getUri());
+        } elseif ($service->getRevProxy()) {
+            $request = $service->getRequest($res);
+            if (self::$debug) {
+                echo 'Location: ' . $request->getUri() . "\n";
+            } else {
+                header('Location: ' . $request->getUri());
+            }
+        } else {
+            try {
+                // It's the only thing we can check for sure cause other resources 
+                // might be encoded in the diss service request in a way the resolver
+                // doesn't understand.
+                // In the "reverse proxy to separated location having full repo access
+                // rights" scenario it creates problem of "resource injection"
+                // attacks when a dissemination service parameter (which access rights
+                // aren't checked by the resolver) will be manipulated to get access
+                // to it.
+                $this->checkAccessRights($res->getUri(true));
+
+                $request = $service->getRequest($res);
+                Proxy::proxy($request);
+            } catch (AccessRightsException $e) {
+                
+            }
+        }
     }
 
+    /**
+     * Finds a repository resource which corresponds to a given URI
+     * @param string $resId URI to be mapped to a repository resource
+     * @return FedoraResource
+     * @throws RuntimeException
+     */
     private function findResource(string $resId): FedoraResource {
         RC::set('fedoraUser', RC::get('resolverUser'));
         RC::set('fedoraPswd', RC::get('resolverPswd'));
@@ -115,6 +148,10 @@ class Resolver {
         throw new RuntimeException('Not Found', 404);
     }
 
+    /**
+     * Parses the client request accept header
+     * @return array
+     */
     private function parseAccept(): array {
         $accept       = array();
         $acceptHeader = trim(filter_input(\INPUT_SERVER, 'HTTP_ACCEPT'));
@@ -139,11 +176,37 @@ class Resolver {
         return $accept;
     }
 
-    private function redirect(string $location) {
-        if (self::$debug) {
-            echo 'Location: ' . $location . "\n";
-        } else {
-            header('Location: ' . $location);
+    /**
+     * Checks if a client is able to access a given URI.
+     * @param string $uri URI to be checked
+     * @throws AccessRightsException
+     * @throws RequestException
+     */
+    private function checkAccessRights(string $uri) {
+        $headers = Proxy::getForwardHeaders();
+        $request = new Request('HEAD', $uri, $headers);
+        $options = [
+            'verify'          => false,
+            'allow_redirects' => true,
+        ];
+        $client  = new Client($options);
+        try {
+            $client->send($request);
+        } catch (RequestException $e) {
+            if ($e->hasResponse()) {
+                $code = $e->getResponse()->getStatusCode();
+                if ($code === 401) {
+                    header('HTTP/1.1 401 Unauthorized');
+                    header('WWW-Authenticate: Basic realm="resolver"');
+                    echo "Authentication required\n";
+                    throw AccessRightsException($e->getMessage(), $code);
+                } elseif ($code === 403) {
+                    header('HTTP/1.1 403 Forbidden');
+                    echo "Access denied\n";
+                    throw AccessRightsException($e->getMessage(), $code);
+                }
+            }
+            throw $e;
         }
     }
 

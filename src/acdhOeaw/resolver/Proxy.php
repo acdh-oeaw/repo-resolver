@@ -29,10 +29,11 @@ namespace acdhOeaw\resolver;
 use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Request;
+use GuzzleHttp\Psr7\Uri;
 use GuzzleHttp\Exception\RequestException;
 
 /**
- * Description of Proxy
+ * Simple reverse proxy implementation for dissemination services.
  *
  * @author zozlak
  */
@@ -47,73 +48,18 @@ class Proxy {
         'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
         'te', 'trailer', 'transfer-encoding', 'upgrade', 'host'
     ];
-    static $skipForwardHeaders  = ['host'];
-
-    public function proxy(string $url): Response {
-        $headers = $this->getForwardHeaders();
-
-        $method = strtoupper(filter_input(INPUT_SERVER, 'REQUEST_METHOD'));
-        $input  = null;
-        if ($method !== 'TRACE' && (isset($headers['content-type']) || isset($headers['content-length']))) {
-            $input = fopen('php://input', 'r');
-        }
-
-        $options               = array();
-        $output                = fopen('php://output', 'w');
-        $options['sink']       = $output;
-        $options['on_headers'] = function(Response $r) {
-            $this->handleResponseHeaders($r);
-        };
-        $options['verify']          = false;
-        $options['allow_redirects'] = true;
-        $client                     = new Client($options);
-
-        $request = new Request($method, $url, $headers, $input);
-        try {
-            $response = $client->send($request);
-        } catch (RequestException $e) {
-            if (!$e->hasResponse()) {
-                throw $e; // if there is no response we can't properly return from function
-            }
-            $response = $e->getResponse();
-
-            if ($input) {
-                fclose($input);
-                $input = null;
-            }
-        } finally {
-            if ($input) {
-                fclose($input);
-            }
-            fclose($output);
-        }
-    }
 
     /**
-     * 
-     * @param Response $response
+     * Client request headers not to be forwarded to the diss service.
+     * @var array
      */
-    public function handleResponseHeaders(Response $response) {
-        $status = $response->getStatusCode();
-        if (in_array($status, array(401, 403))) {
-            if (!isset($_SERVER['PHP_AUTH_USER'])) {
-                header('HTTP/1.1 401 Unauthorized');
-                header('WWW-Authenticate: Basic realm="resolver"');
-            }
-        } else {
-            header('HTTP/1.1 ' . $response->getStatusCode() . ' ' . $response->getReasonPhrase());
-            foreach ($response->getHeaders() as $name => $values) {
-                if (in_array(strtolower($name), self::$skipResponseHeaders)) {
-                    continue;
-                }
-                foreach ($values as $value) {
-                    header(sprintf('%s: %s', $name, $value), false);
-                }
-            }
-        }
-    }
+    static $skipForwardHeaders  = ['host'];
 
-    private function getForwardHeaders(): array {
+    /**
+     * Returns all valid headers comming from the client request.
+     * @return array
+     */
+    static public function getForwardHeaders(): array {
         $headers = array();
         foreach ($_SERVER as $k => $v) {
             if (substr($k, 0, 5) !== 'HTTP_') {
@@ -143,7 +89,124 @@ class Proxy {
             $headers['cookie'] = implode('; ', $cookies);
         }
 
+        if (isset($_SERVER['PHP_AUTH_USER'])) {
+            $headers['Authorization'] = 'Basic ' . base64_encode($_SERVER['PHP_AUTH_USER'] . ':' . ($_SERVER['PHP_AUTH_PW'] ?? ''));
+        }
+
         return $headers;
+    }
+
+    /**
+     * Does the job:
+     * 
+     * - takes a diss service request
+     * - adds all headers provided by the client request to it (most importantly Authentication)
+     * - recursively issues a HEAD request to the diss service URL to resolve all redirects
+     * - makes a final request passing client request body to the diss service
+     *   and passing data returned by the diss service to the client
+     * @param Request $request diss service request to be reverse-proxied
+     * @return Response
+     * @throws RequestException
+     */
+    static public function proxy(Request $request): Response {
+        $headers       = $request->getHeaders();
+        $clientHeaders = self::getForwardHeaders();
+        foreach ($clientHeaders as $h => $v) {
+            if (!isset($headers[$h])) {
+                $headers[$h] = [];
+            }
+            if (!is_array($headers[$h])) {
+                $headers[$h] = [$headers[$h]];
+            }
+            $headers[$h][] = $v;
+        }
+
+        $options                    = [];
+        $options['verify']          = false;
+        $options['allow_redirects'] = false;
+        $client                     = new Client($options);
+
+        // Process possible redirects
+        $head = new Request($request->getMethod(), $request->getUri(), $headers, $request->getBody());
+        while (true) {
+            $response = self::sendRequest($client, $head);
+            $code     = $response->getStatusCode();
+            if ((int) ($code / 100) === 3 && $code <= 307) {
+                $head = $head->withUri(new Uri($response->getHeader('Location')[0]));
+            } else {
+                break;
+            }
+        }
+        $request = $request->withUri($head->getUri());
+
+        // adjust client options
+        $output                = fopen('php://output', 'w');
+        $options['sink']       = $output;
+        $options['on_headers'] = function(Response $r) {
+            self::handleResponseHeaders($r);
+        };
+        $client = new Client($options);
+
+        // make a final proxy call
+        try {
+            $response = $client->send($request);
+        } catch (RequestException $e) {
+            if (!$e->hasResponse()) {
+                throw $e; // if there is no response we can't properly return from function
+            }
+            $response = $e->getResponse();
+        } finally {
+            fclose($output);
+        }
+        return $response;
+    }
+
+    /**
+     * Handles response headers.
+     * @param Response $response
+     */
+    static public function handleResponseHeaders(Response $response) {
+        $status = $response->getStatusCode();
+        if (in_array($status, array(401, 403))) {
+            if (!isset($_SERVER['PHP_AUTH_USER'])) {
+                header('HTTP/1.1 401 Unauthorized');
+                header('WWW-Authenticate: Basic realm="resolver"');
+            }
+            return;
+        } else {
+            header('HTTP/1.1 ' . $response->getStatusCode() . ' ' . $response->getReasonPhrase());
+            foreach ($response->getHeaders() as $name => $values) {
+                if (in_array(strtolower($name), self::$skipResponseHeaders)) {
+                    continue;
+                }
+                foreach ($values as $value) {
+                    header(sprintf('%s: %s', $name, $value), false);
+                }
+            }
+        }
+    }
+
+    /**
+     * Sends a given request
+     * @param Client $client Guzzle HTTP client object
+     * @param Request $request request to be sent
+     * @return Response
+     * @throws RequestException
+     */
+    static private function sendRequest(Client $client, Request $request): Response {
+        try {
+            $response = $client->send($request);
+        } catch (RequestException $e) {
+            if (!$e->hasResponse()) {
+                throw $e; // if there is no response we can't properly return from function
+            }
+            $response = $e->getResponse();
+        } finally {
+            if ($request->getBody()->getSize()) {
+                $request->getBody()->close();
+            }
+        }
+        return $response;
     }
 
 }
