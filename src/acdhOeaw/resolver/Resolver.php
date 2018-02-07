@@ -122,7 +122,7 @@ class Resolver {
         RC::set('fedoraPswd', RC::get('resolverPswd'));
         $fedoraApiUrls = RC::get('resolverFedoraApiUrl');
         array_unshift($fedoraApiUrls, RC::get('fedoraApiUrl'));
-        $sparqlUrls    = RC::get('resolverSpaqrlUrl');
+        $sparqlUrls    = RC::get('resolverSparqlUrl');
         array_unshift($sparqlUrls, RC::get('sparqlUrl'));
         foreach (array_combine($fedoraApiUrls, $sparqlUrls) as $fedoraApiUrl => $sparqlUrl) {
             RC::set('fedoraApiUrl', $fedoraApiUrl);
