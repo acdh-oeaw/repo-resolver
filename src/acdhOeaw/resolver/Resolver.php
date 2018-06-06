@@ -137,10 +137,7 @@ class Resolver {
             } catch (AmbiguousMatch $e) {
                 throw new RuntimeException('Internal Server Error - many resources with the given URI', 500);
             } catch (RequestException $e) {
-                // skip sparql endpoints we are not authorized to use
-                if ($e->getCode() != 401 && $e->getCode() != 403) {
-                    throw new RuntimeException('Internal Server Error', 500);
-                }
+                // simply skip sparql endpoints which don't work
             } catch (Exception $e) {
                 throw new RuntimeException('Internal Server Error', 500);
             }
