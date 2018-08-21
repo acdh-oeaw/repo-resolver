@@ -138,6 +138,8 @@ class Resolver {
                 throw new RuntimeException('Internal Server Error - many resources with the given URI', 500);
             } catch (RequestException $e) {
                 // simply skip sparql endpoints which don't work
+            } catch (\EasyRdf\Exception $e) {
+                // simply skip sparql endpoints which don't work
             } catch (Exception $e) {
                 throw new RuntimeException('Internal Server Error', 500);
             }
