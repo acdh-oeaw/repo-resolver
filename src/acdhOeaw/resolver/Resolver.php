@@ -86,11 +86,7 @@ class Resolver {
             $this->redirect($request->getUri());
         } elseif (!$service->getRevProxy()) {
             $request = $service->getRequest($res);
-            if (self::$debug) {
-                echo 'Location: ' . $request->getUri() . "\n";
-            } else {
-                header('Location: ' . $request->getUri());
-            }
+            $this->redirect($request->getUri());
         } else {
             try {
                 // It's the only thing we can check for sure cause other resources 
@@ -206,6 +202,14 @@ class Resolver {
                 }
             }
             throw $e;
+        }
+    }
+
+    private function redirect(string $url) {
+        if (self::$debug) {
+            echo 'Location: ' . $url . "\n";
+        } else {
+            header('Location: ' . $url);
         }
     }
 
