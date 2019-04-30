@@ -33,6 +33,7 @@ use GuzzleHttp\Psr7\Request;
 use GuzzleHttp\Exception\RequestException;
 use acdhOeaw\fedora\Fedora;
 use acdhOeaw\fedora\FedoraResource;
+use acdhOeaw\fedora\dissemination\Service;
 use acdhOeaw\fedora\exceptions\NotFound;
 use acdhOeaw\fedora\exceptions\AmbiguousMatch;
 use acdhOeaw\util\RepoConfig as RC;
@@ -80,7 +81,7 @@ class Resolver {
             $this->redirect($url);
         } else {
             // full resolution track
-            $dissServ = $res->getDissServices();
+            $dissServ = $res->getDissServices(true);
             foreach ($accept as $mime) {
                 if (isset($dissServ[$mime])) {
                     $service = $dissServ[$mime];
@@ -98,25 +99,29 @@ class Resolver {
             if ($service === null) {
                 $request = new Request('GET', $res->getUri(true));
                 $this->redirect($request->getUri());
-            } elseif (!$service->getRevProxy()) {
-                $request = $service->getRequest($res);
-                $this->redirect($request->getUri());
             } else {
-                try {
-                    // It's the only thing we can check for sure cause other resources 
-                    // might be encoded in the diss service request in a way the resolver
-                    // doesn't understand.
-                    // In the "reverse proxy to separated location having full repo access
-                    // rights" scenario it creates problem of "resource injection"
-                    // attacks when a dissemination service parameter (which access rights
-                    // aren't checked by the resolver) will be manipulated to get access
-                    // to it.
-                    $this->checkAccessRights($res->getUri(true));
+                $service = new Service($res->getFedora(), $service);
 
+                if (!$service->getRevProxy()) {
                     $request = $service->getRequest($res);
-                    Proxy::proxy($request);
-                } catch (AccessRightsException $e) {
+                    $this->redirect($request->getUri());
+                } else {
+                    try {
+                        // It's the only thing we can check for sure cause other resources 
+                        // might be encoded in the diss service request in a way the resolver
+                        // doesn't understand.
+                        // In the "reverse proxy to separated location having full repo access
+                        // rights" scenario it creates problem of "resource injection"
+                        // attacks when a dissemination service parameter (which access rights
+                        // aren't checked by the resolver) will be manipulated to get access
+                        // to it.
+                        $this->checkAccessRights($res->getUri(true));
+
+                        $request = $service->getRequest($res);
+                        Proxy::proxy($request);
+                    } catch (AccessRightsException $e) {
               
+                    }
                 }
             }
         }
