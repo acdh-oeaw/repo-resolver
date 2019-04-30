@@ -20,3 +20,4 @@ try {
     header('HTTP/1.1 ' . $e->getCode() . ' ' . $e->getMessage());
     echo $e->getMessage();
 }
+

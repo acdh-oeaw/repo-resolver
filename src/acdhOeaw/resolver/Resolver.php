@@ -69,44 +69,55 @@ class Resolver {
             $resId = $extResId;
         }
         $res      = $this->findResource($resId);
-        $dissServ = $res->getDissServices();
         $accept   = $this->parseAccept();
-        foreach ($accept as $mime) {
-            if (isset($dissServ[$mime])) {
-                $service = $dissServ[$mime];
-                break;
-            }
-        }
 
-        if ($service === null) {
-            $defaultServ = RC::get('defaultDissService');
-            if ($defaultServ && isset($dissServ[$defaultServ])) {
-                $service = $dissServ[$defaultServ];
+        if (count($accept) === 0 || in_array($accept[0], [RC::get('resolverFormatRaw'), RC::get('resolverFormatMeta')])) {
+            // a fast track for raw and meta access
+            $url = $res->getUri(true);
+            if ($accept[0] === RC::get('resolverFormatMeta')) {
+                $url .= '/fcr:metadata';
             }
-        }
-
-        if ($service === null) {
-            $request = new Request('GET', $res->getUri(true));
-            $this->redirect($request->getUri());
-        } elseif (!$service->getRevProxy()) {
-            $request = $service->getRequest($res);
-            $this->redirect($request->getUri());
+            $this->redirect($url);
         } else {
-            try {
-                // It's the only thing we can check for sure cause other resources 
-                // might be encoded in the diss service request in a way the resolver
-                // doesn't understand.
-                // In the "reverse proxy to separated location having full repo access
-                // rights" scenario it creates problem of "resource injection"
-                // attacks when a dissemination service parameter (which access rights
-                // aren't checked by the resolver) will be manipulated to get access
-                // to it.
-                $this->checkAccessRights($res->getUri(true));
+            // full resolution track
+            $dissServ = $res->getDissServices();
+            foreach ($accept as $mime) {
+                if (isset($dissServ[$mime])) {
+                    $service = $dissServ[$mime];
+                    break;
+                }
+            }
 
+            if ($service === null) {
+                $defaultServ = RC::get('defaultDissService');
+                if ($defaultServ && isset($dissServ[$defaultServ])) {
+                    $service = $dissServ[$defaultServ];
+                }
+            }
+
+            if ($service === null) {
+                $request = new Request('GET', $res->getUri(true));
+                $this->redirect($request->getUri());
+            } elseif (!$service->getRevProxy()) {
                 $request = $service->getRequest($res);
-                Proxy::proxy($request);
-            } catch (AccessRightsException $e) {
-                
+                $this->redirect($request->getUri());
+            } else {
+                try {
+                    // It's the only thing we can check for sure cause other resources 
+                    // might be encoded in the diss service request in a way the resolver
+                    // doesn't understand.
+                    // In the "reverse proxy to separated location having full repo access
+                    // rights" scenario it creates problem of "resource injection"
+                    // attacks when a dissemination service parameter (which access rights
+                    // aren't checked by the resolver) will be manipulated to get access
+                    // to it.
+                    $this->checkAccessRights($res->getUri(true));
+
+                    $request = $service->getRequest($res);
+                    Proxy::proxy($request);
+                } catch (AccessRightsException $e) {
+              
+                }
             }
         }
     }
