@@ -56,14 +56,18 @@ class Resolver {
     public function resolve() {
         /* @var $service \acdhOeaw\fedora\dissemination\Service */
         $service = null;
-        if (filter_input(INPUT_SERVER, 'HTTP_X_FORWARDED_HOST')) {
-            $host = explode(',', filter_input(INPUT_SERVER, 'HTTP_X_FORWARDED_HOST'));
+        if (filter_input(\INPUT_SERVER, 'HTTP_X_FORWARDED_HOST')) {
+            $host = explode(',', filter_input(\INPUT_SERVER, 'HTTP_X_FORWARDED_HOST'));
             $host = trim($host[0]);
         } else {
-            $host = filter_input(INPUT_SERVER, 'HTTP_HOST');
+            $host = filter_input(\INPUT_SERVER, 'HTTP_HOST');
         }
 
         $resId    = 'https://' . $host . filter_input(\INPUT_SERVER, 'REDIRECT_URL');
+        $extResId = filter_input(\INPUT_GET, 'id');
+        if (!empty($extResId)) {
+            $resId = $extResId;
+        }
         $res      = $this->findResource($resId);
         $dissServ = $res->getDissServices();
         $accept   = $this->parseAccept();
