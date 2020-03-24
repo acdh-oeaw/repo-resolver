@@ -1,7 +1,24 @@
 {
+    "name": "acdh-oeaw/repo-resolver",
+    "type": "project",
+    "description": "A resolver for the ACDH Fedora-based repository solution",
+    "keywords": [],
+    "homepage": "https://github.com/acdh-oeaw/repo-resolver",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Mateusz Żółtak",
+            "email": "mzoltak@oeaw.ac.at"
+        }
+    ],
     "require": {
         "zozlak/util": "*",
         "acdh-oeaw/repo-php-util": "~2",
-        "guzzlehttp/guzzle": "~6.0"
+        "guzzlehttp/guzzle": "~6"
+    },
+    "autoload": {
+        "psr-4": {
+            "acdhOeaw\\": "src/acdhOeaw"
+        }
     }
 }
